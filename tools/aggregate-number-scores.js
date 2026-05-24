@@ -3,7 +3,7 @@
 const admin = require('firebase-admin');
 
 const CATEGORIES = ['spam', 'collector', 'robot', 'fraud'];
-const MIN_COMPLAINTS = 5;
+const THRESHOLD = 5;
 
 function initFirebase() {
   const raw = process.env.FIREBASE_SERVICE_ACCOUNT;
@@ -63,15 +63,17 @@ function topCategory(categoryCounts) {
 async function aggregate(db, groups) {
   const scoresCol = db.collection('number_scores');
   const batch = db.batch();
-  let written = 0;
-  let skipped = 0;
+  let hasComplaints = 0;
+  let notEnough = 0;
 
   for (const [phoneHash, entry] of groups) {
     const complaintCount = entry.installations.size;
+    const status = complaintCount >= THRESHOLD ? 'has_complaints' : 'not_enough_reports';
 
-    if (complaintCount < MIN_COMPLAINTS) {
-      skipped++;
-      continue;
+    if (status === 'has_complaints') {
+      hasComplaints++;
+    } else {
+      notEnough++;
     }
 
     const docRef = scoresCol.doc(phoneHash);
@@ -82,16 +84,15 @@ async function aggregate(db, groups) {
         phoneTail: entry.phoneTail,
         complaintCount,
         topCategory: topCategory(entry.categoryCounts),
-        status: 'has_complaints',
+        status,
         updatedAt: admin.firestore.FieldValue.serverTimestamp(),
       },
       { merge: true }
     );
-    written++;
   }
 
   await batch.commit();
-  return { written, skipped };
+  return { written: hasComplaints + notEnough, hasComplaints, notEnough };
 }
 
 async function main() {
@@ -105,8 +106,11 @@ async function main() {
   const groups = groupByPhoneHash(reports);
   console.log(`Unique phoneHash entries: ${groups.size}`);
 
-  const { written, skipped } = await aggregate(db, groups);
-  console.log(`Done. Written: ${written}, skipped (< ${MIN_COMPLAINTS} complaints): ${skipped}`);
+  const { written, hasComplaints, notEnough } = await aggregate(db, groups);
+  console.log(`Done.`);
+  console.log(`  number_scores updated : ${written}`);
+  console.log(`  status has_complaints : ${hasComplaints}`);
+  console.log(`  status not_enough_reports : ${notEnough}`);
 }
 
 main().catch((err) => {
