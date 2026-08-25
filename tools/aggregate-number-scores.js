@@ -4,6 +4,7 @@ const admin = require('firebase-admin');
 
 const CATEGORIES = ['spam', 'collector', 'robot', 'fraud'];
 const THRESHOLD = 5;
+const BATCH_LIMIT = 500;
 
 function initFirebase() {
   const raw = process.env.FIREBASE_SERVICE_ACCOUNT;
@@ -60,39 +61,78 @@ function topCategory(categoryCounts) {
   return best;
 }
 
+function scoreData(phoneHash, entry) {
+  const complaintCount = entry.installations.size;
+  return {
+    phoneHash,
+    phoneTail: entry.phoneTail,
+    complaintCount,
+    topCategory: topCategory(entry.categoryCounts),
+    status: complaintCount >= THRESHOLD ? 'has_complaints' : 'not_enough_reports',
+  };
+}
+
+function scoreChanged(current, next) {
+  return !current || Object.entries(next).some(([key, value]) => current[key] !== value);
+}
+
+async function readCurrentScores(scoresCol) {
+  const snapshot = await scoresCol.get();
+  return new Map(snapshot.docs.map((doc) => [doc.id, doc.data()]));
+}
+
+async function commitChanges(db, changes) {
+  for (let offset = 0; offset < changes.length; offset += BATCH_LIMIT) {
+    const batch = db.batch();
+    for (const { docRef, data } of changes.slice(offset, offset + BATCH_LIMIT)) {
+      batch.set(
+        docRef,
+        { ...data, updatedAt: admin.firestore.FieldValue.serverTimestamp() },
+        { merge: true }
+      );
+    }
+    await batch.commit();
+  }
+}
+
 async function aggregate(db, groups) {
   const scoresCol = db.collection('number_scores');
-  const batch = db.batch();
+  const currentScores = await readCurrentScores(scoresCol);
+  const changes = [];
   let hasComplaints = 0;
   let notEnough = 0;
 
   for (const [phoneHash, entry] of groups) {
-    const complaintCount = entry.installations.size;
-    const status = complaintCount >= THRESHOLD ? 'has_complaints' : 'not_enough_reports';
+    const data = scoreData(phoneHash, entry);
 
-    if (status === 'has_complaints') {
+    if (data.status === 'has_complaints') {
       hasComplaints++;
     } else {
       notEnough++;
     }
 
-    const docRef = scoresCol.doc(phoneHash);
-    batch.set(
-      docRef,
-      {
-        phoneHash,
-        phoneTail: entry.phoneTail,
-        complaintCount,
-        topCategory: topCategory(entry.categoryCounts),
-        status,
-        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-      },
-      { merge: true }
-    );
+    if (scoreChanged(currentScores.get(phoneHash), data)) {
+      changes.push({ docRef: scoresCol.doc(phoneHash), data });
+    }
   }
 
-  await batch.commit();
-  return { written: hasComplaints + notEnough, hasComplaints, notEnough };
+  await commitChanges(db, changes);
+  return {
+    written: changes.length,
+    unchanged: groups.size - changes.length,
+    hasComplaints,
+    notEnough,
+  };
+}
+
+function isFirestoreQuotaError(err) {
+  const code = String(err?.code || '').toLowerCase();
+  const message = String(err?.message || '').toLowerCase();
+  return code === '8' ||
+    code === 'resource-exhausted' ||
+    code === 'firestore/resource-exhausted' ||
+    message.includes('quota exceeded') ||
+    message.includes('resource exhausted');
 }
 
 async function main() {
@@ -106,14 +146,20 @@ async function main() {
   const groups = groupByPhoneHash(reports);
   console.log(`Unique phoneHash entries: ${groups.size}`);
 
-  const { written, hasComplaints, notEnough } = await aggregate(db, groups);
-  console.log(`Done.`);
-  console.log(`  number_scores updated : ${written}`);
+  const { written, unchanged, hasComplaints, notEnough } = await aggregate(db, groups);
+  console.log('Done.');
+  console.log(`  number_scores written : ${written}`);
+  console.log(`  number_scores unchanged : ${unchanged}`);
   console.log(`  status has_complaints : ${hasComplaints}`);
   console.log(`  status not_enough_reports : ${notEnough}`);
 }
 
 main().catch((err) => {
+  if (isFirestoreQuotaError(err)) {
+    console.warn('Firestore quota is exhausted; skipping this run without failing the workflow.');
+    console.warn(err.message || err);
+    return;
+  }
   console.error(err);
   process.exit(1);
 });
