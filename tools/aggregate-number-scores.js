@@ -99,11 +99,24 @@ async function aggregate(db, groups) {
   const scoresCol = db.collection('number_scores');
   const currentScores = await readCurrentScores(scoresCol);
   const changes = [];
+  const complaintDistribution = {
+    1: 0,
+    2: 0,
+    3: 0,
+    4: 0,
+    5: 0,
+    moreThan5: 0,
+  };
   let hasComplaints = 0;
   let notEnough = 0;
 
   for (const [phoneHash, entry] of groups) {
     const data = scoreData(phoneHash, entry);
+    if (data.complaintCount > 5) {
+      complaintDistribution.moreThan5++;
+    } else if (data.complaintCount >= 1) {
+      complaintDistribution[data.complaintCount]++;
+    }
 
     if (data.status === 'has_complaints') {
       hasComplaints++;
@@ -122,6 +135,7 @@ async function aggregate(db, groups) {
     unchanged: groups.size - changes.length,
     hasComplaints,
     notEnough,
+    complaintDistribution,
   };
 }
 
@@ -146,12 +160,25 @@ async function main() {
   const groups = groupByPhoneHash(reports);
   console.log(`Unique phoneHash entries: ${groups.size}`);
 
-  const { written, unchanged, hasComplaints, notEnough } = await aggregate(db, groups);
+  const {
+    written,
+    unchanged,
+    hasComplaints,
+    notEnough,
+    complaintDistribution,
+  } = await aggregate(db, groups);
   console.log('Done.');
   console.log(`  number_scores written : ${written}`);
   console.log(`  number_scores unchanged : ${unchanged}`);
   console.log(`  status has_complaints : ${hasComplaints}`);
   console.log(`  status not_enough_reports : ${notEnough}`);
+  console.log('  complaints per number:');
+  console.log(`    1 : ${complaintDistribution[1]}`);
+  console.log(`    2 : ${complaintDistribution[2]}`);
+  console.log(`    3 : ${complaintDistribution[3]}`);
+  console.log(`    4 : ${complaintDistribution[4]}`);
+  console.log(`    5 : ${complaintDistribution[5]}`);
+  console.log(`    more than 5 : ${complaintDistribution.moreThan5}`);
 }
 
 main().catch((err) => {
