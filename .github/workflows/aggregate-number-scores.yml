@@ -1,5 +1,14 @@
 name: Aggregate Number Scores
 
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
 on:
   schedule:
     - cron: '*/30 * * * *'
@@ -26,3 +35,23 @@ jobs:
         env:
           FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
         run: node tools/aggregate-number-scores.js
+
+      - name: Create public Firebase web configuration
+        env:
+          FIREBASE_API_KEY: ${{ vars.FIREBASE_API_KEY }}
+          FIREBASE_AUTH_DOMAIN: ${{ vars.FIREBASE_AUTH_DOMAIN }}
+          FIREBASE_PROJECT_ID: ${{ vars.FIREBASE_PROJECT_ID }}
+          FIREBASE_APP_ID: ${{ vars.FIREBASE_APP_ID }}
+        run: |
+          node -e "const fs=require('fs');const c={apiKey:process.env.FIREBASE_API_KEY,authDomain:process.env.FIREBASE_AUTH_DOMAIN,projectId:process.env.FIREBASE_PROJECT_ID,appId:process.env.FIREBASE_APP_ID};if(Object.values(c).some(v=>!v))throw Error('Firebase web configuration is incomplete');fs.writeFileSync('public/firebase-config.js','export default '+JSON.stringify(c)+';\n')"
+
+      - name: Configure GitHub Pages
+        uses: actions/configure-pages@v5
+
+      - name: Upload dashboard
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: public
+
+      - name: Deploy dashboard
+        uses: actions/deploy-pages@v4

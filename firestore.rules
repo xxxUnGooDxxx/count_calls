@@ -1,0 +1,71 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    match /number_reports/{reportId} {
+      allow read: if false;
+
+      allow create: if
+        request.resource.data.keys().hasOnly([
+          'phoneHash',
+          'phoneTail',
+          'country',
+          'category',
+          'vote',
+          'source',
+          'appVersion',
+          'installationId',
+          'createdAt'
+        ])
+        && request.resource.data.phoneHash is string
+        && request.resource.data.phoneHash.matches('^[a-fA-F0-9]{64}$')
+        && request.resource.data.phoneTail is string
+        && request.resource.data.phoneTail.matches('^[0-9]{0,4}$')
+        && request.resource.data.country is string
+        && request.resource.data.country.size() <= 10
+        && request.resource.data.category in [
+          'fraud',
+          'spam',
+          'robot',
+          'collector',
+          'bank',
+          'delivery',
+          'safe',
+          'other'
+        ]
+        && request.resource.data.vote in [
+          'bad',
+          'safe',
+          'info'
+        ]
+        && request.resource.data.source in [
+          'call_log',
+          'contact_card',
+          'incoming_screen'
+        ]
+        && request.resource.data.appVersion is string
+        && request.resource.data.appVersion.size() <= 40
+        && request.resource.data.installationId is string
+        && request.resource.data.installationId.size() <= 80
+        && request.resource.data.createdAt == request.time;
+
+      allow update, delete: if false;
+    }
+
+    match /number_scores/{phoneHash} {
+      allow read: if true;
+      allow create, update, delete: if false;
+    }
+
+    match /dashboard_stats/{document} {
+      allow read: if request.auth != null
+        && exists(/databases/$(database)/documents/dashboard_users/$(request.auth.uid));
+      allow write: if false;
+    }
+
+    match /dashboard_users/{userId} {
+      allow read, write: if false;
+    }
+  }
+}

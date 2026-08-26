@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Статистика жалоб</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <main>
+    <section id="login" class="login">
+      <form id="login-form" class="login-card">
+        <p class="eyebrow">ПРОЗВОНКИ · ЗАКРЫТЫЙ ДОСТУП</p>
+        <h1>Статистика жалоб</h1>
+        <label>Email<input id="email" type="email" autocomplete="username" required></label>
+        <label>Пароль<input id="password" type="password" autocomplete="current-password" required></label>
+        <button type="submit">Войти</button>
+        <p id="login-error" class="error"></p>
+      </form>
+    </section>
+
+    <section id="dashboard" hidden>
+      <header>
+        <div><p class="eyebrow">ПРОЗВОНКИ · МОНИТОРИНГ</p><h1>Жалобы на номера</h1></div>
+        <div class="account"><span id="updated">Загрузка…</span><button id="logout" class="quiet">Выйти</button></div>
+      </header>
+      <div class="cards">
+        <article><span>Жалоб сегодня</span><strong id="today">—</strong><small id="delta">—</small></article>
+        <article><span>Всего жалоб</span><strong id="reports">—</strong><small>за всё время</small></article>
+        <article><span>Номеров в базе</span><strong id="numbers">—</strong><small id="danger-share">—</small></article>
+        <article><span>С 5+ жалобами</span><strong id="danger">—</strong><small>требуют внимания</small></article>
+      </div>
+      <section class="panel">
+        <div class="panel-head"><div><p class="eyebrow">ДИНАМИКА</p><h2>Новые жалобы</h2></div><div class="tabs"><button class="active" data-days="7">Неделя</button><button data-days="30">Месяц</button></div></div>
+        <div id="trend" class="chart"></div>
+      </section>
+      <div class="grid">
+        <section class="panel"><p class="eyebrow">НАКОПЛЕНИЕ</p><h2>Жалоб на один номер</h2><div id="distribution"></div></section>
+        <section class="panel"><p class="eyebrow">СЕГОДНЯ</p><h2>Активность по часам</h2><div id="hourly" class="chart small"></div></section>
+      </div>
+      <section class="panel"><p class="eyebrow">ТИПЫ СИГНАЛОВ</p><h2>Категории</h2><div id="categories" class="categories"></div></section>
+      <p id="warning" class="warning" hidden></p>
+    </section>
+  </main>
+  <script type="module" src="app.js"></script>
+</body>
+</html>

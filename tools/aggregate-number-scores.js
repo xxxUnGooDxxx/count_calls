@@ -5,6 +5,7 @@ const admin = require('firebase-admin');
 const CATEGORIES = ['spam', 'collector', 'robot', 'fraud'];
 const THRESHOLD = 5;
 const BATCH_LIMIT = 500;
+const DASHBOARD_DAYS = 370;
 
 function initFirebase() {
   const raw = process.env.FIREBASE_SERVICE_ACCOUNT;
@@ -139,6 +140,51 @@ async function aggregate(db, groups) {
   };
 }
 
+function reportDate(report) {
+  const value = report.createdAt || report.reportedAt || report.timestamp || report.date
+    || report.created_at || report.reported_at;
+  if (!value) return null;
+  if (typeof value.toDate === 'function') return value.toDate();
+  if (typeof value === 'number' || typeof value === 'string') return new Date(value);
+  if (typeof value.seconds === 'number') return new Date(value.seconds * 1000);
+  return null;
+}
+
+function irkutskParts(date) {
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Irkutsk', year: 'numeric', month: '2-digit', day: '2-digit',
+    hour: '2-digit', hourCycle: 'h23',
+  }).formatToParts(date);
+  const get = (type) => parts.find((part) => part.type === type)?.value;
+  return { day: `${get('year')}-${get('month')}-${get('day')}`, hour: Number(get('hour')) };
+}
+
+function buildDashboardStats(reports, groups, summary) {
+  const now = new Date();
+  const oldest = new Date(now.getTime() - DASHBOARD_DAYS * 86400000);
+  const daily = {};
+  const hourlyToday = Array.from({ length: 24 }, () => 0);
+  const categories = Object.fromEntries(CATEGORIES.map((category) => [category, 0]));
+  const today = irkutskParts(now).day;
+  let reportsWithoutDate = 0;
+  for (const report of reports) {
+    if (report.category && Object.hasOwn(categories, report.category)) categories[report.category]++;
+    const date = reportDate(report);
+    if (!date || Number.isNaN(date.getTime())) { reportsWithoutDate++; continue; }
+    if (date < oldest || date > now) continue;
+    const local = irkutskParts(date);
+    daily[local.day] = (daily[local.day] || 0) + 1;
+    if (local.day === today) hourlyToday[local.hour]++;
+  }
+  return {
+    generatedAt: admin.firestore.FieldValue.serverTimestamp(),
+    timeZone: 'Asia/Irkutsk',
+    totals: { reports: reports.length, uniqueNumbers: groups.size, hasComplaints: summary.hasComplaints, notEnoughReports: summary.notEnough },
+    complaintDistribution: summary.complaintDistribution,
+    categories, daily, hourlyToday, reportsWithoutDate,
+  };
+}
+
 function isFirestoreQuotaError(err) {
   const code = String(err?.code || '').toLowerCase();
   const message = String(err?.message || '').toLowerCase();
@@ -160,13 +206,16 @@ async function main() {
   const groups = groupByPhoneHash(reports);
   console.log(`Unique phoneHash entries: ${groups.size}`);
 
+  const summary = await aggregate(db, groups);
   const {
     written,
     unchanged,
     hasComplaints,
     notEnough,
     complaintDistribution,
-  } = await aggregate(db, groups);
+  } = summary;
+  await db.collection('dashboard_stats').doc('current').set(buildDashboardStats(reports, groups, summary));
+  console.log('Dashboard statistics updated');
   console.log('Done.');
   console.log(`  number_scores written : ${written}`);
   console.log(`  number_scores unchanged : ${unchanged}`);

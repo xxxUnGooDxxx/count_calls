@@ -3,7 +3,8 @@
   "version": "1.0.0",
   "private": true,
   "scripts": {
-    "aggregate": "node tools/aggregate-number-scores.js"
+    "aggregate": "node tools/aggregate-number-scores.js",
+    "check": "node --check tools/aggregate-number-scores.js && node --check public/app.js"
   },
   "dependencies": {
     "firebase-admin": "^12.0.0"
